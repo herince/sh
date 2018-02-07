@@ -2,16 +2,13 @@
 #include <unistd.h>
 #include <string.h>
 #include <wait.h>
-#include <errno.h>
+//#include <errno.h>
 
 #include <stdio.h>
 
 //const char *COMMAND_PROMPT = "> ";
 
 static const int ARG_MAX = 10000;
-
-static const char *ERROR_COMMAND_LINE_LIMIT_EXCEEDED = "command line limit exceeded\n";
-static const char *ERROR_UNEXPECTED_TOKEN_PIPE = "unexpected token '|'\n";
 
 static int pipefd[2];
 
@@ -28,14 +25,15 @@ void lerror(const char *msg)
 }
 
 // returns 0 on success and -1 on error
-int expressiveExecvp(char *const *execArr, int piped, int isFirst, int isLast)
+int sh_execvp(char *const *execArr, int piped, int isLast)
 {
     int err = 0;
+
     pid_t pid;
 
     if ((pid = fork()) < 0)
     {
-        perror("[expressiveExecv] fork()");
+        perror("[sh_execvp] fork()");
         return -1;
     } else if (pid == 0)
     {
@@ -46,16 +44,20 @@ int expressiveExecvp(char *const *execArr, int piped, int isFirst, int isLast)
             err = dup2(pipefd[OUT], OUT);
             if (err == -1)
             {
-                perror("[expressiveExecvp] unable to duplicate file descriptor");
+                perror("[sh_execvp] unable to duplicate file descriptor");
                 exit(1);
             }
+        }
+        if (piped)
+        {
             close(pipefd[IN]);
+            close(pipefd[OUT]);
         }
 
         err = execvp(execArr[0], execArr);
         if (err == -1)
         {
-            perror("[expressiveExecvp] execvp()");
+            perror("[sh_execvp] execvp()");
             exit(1);
         }
     } else
@@ -66,9 +68,14 @@ int expressiveExecvp(char *const *execArr, int piped, int isFirst, int isLast)
             err = dup2(pipefd[IN], IN);
             if (err == -1)
             {
-                perror("[expressiveExecvp] unable to duplicate file descriptor");
+                perror("[sh_execvp] unable to duplicate file descriptor");
                 exit(1);
             }
+        }
+
+        if (piped)
+        {
+            close(pipefd[IN]);
             close(pipefd[OUT]);
         }
     }
@@ -78,7 +85,7 @@ int expressiveExecvp(char *const *execArr, int piped, int isFirst, int isLast)
 
 // initial value of (*argc) should be 0 for this function to work
 // returns 0 for success, -1 for error, -2 for end of file
-ssize_t readLine(int fd, char args[ARG_MAX], unsigned int *argc)
+ssize_t sh_readLine(int fd, char args[ARG_MAX], unsigned int *argc)
 {
     ssize_t readChr;
 
@@ -91,7 +98,7 @@ ssize_t readLine(int fd, char args[ARG_MAX], unsigned int *argc)
         readChr = read(fd, &currChr, 1);
         if (readChr < 0)
         {
-            perror("[readLine] read()");
+            perror("[sh_readLine] read()");
             return -1;
         } else if (readChr == 0)
         {
@@ -117,7 +124,7 @@ ssize_t readLine(int fd, char args[ARG_MAX], unsigned int *argc)
 
     if (args_i == ARG_MAX)
     {
-        lerror(ERROR_COMMAND_LINE_LIMIT_EXCEEDED);
+        lerror("[sh_readLine] command line limit exceeded\n");
         return -1;
     }
 
@@ -125,7 +132,7 @@ ssize_t readLine(int fd, char args[ARG_MAX], unsigned int *argc)
 }
 
 // returns 0 on success and -1 on error
-int execCmdLine(int argc, char **argv)
+int sh_execCMDLine(int argc, char **argv)
 {
     int err;
 
@@ -133,7 +140,6 @@ int execCmdLine(int argc, char **argv)
     int j = 0;
 
     int piped = 0;
-    int isFirst = 1;
     int last = 0;
 
     int children = 0;
@@ -142,30 +148,27 @@ int execCmdLine(int argc, char **argv)
     {
         if (strcmp(argv[i], "|") == 0)
         {
-            piped = 1;
-
             if (j < 1)
             {
-                lerror(ERROR_UNEXPECTED_TOKEN_PIPE);
+                lerror("[sh_execCMDLine] unexpected token '|'\n");
                 return -1;
             }
 
             cmdArr[j] = NULL;
             char *const *execArr = &cmdArr[0];
 
-            // to fix!!!
-
             err = pipe(pipefd);
             if (err == -1)
             {
-                perror("[execCmdLine] could not pipe piped commands");
+                perror("[sh_execCMDLine] pipe()");
                 exit(1);
             }
+            piped = 1;
 
-            err = expressiveExecvp(execArr, piped, isFirst, last);
+            err = sh_execvp(execArr, piped, last);
             if (err == -1)
             {
-                lerror("could not execute command line\n");
+                lerror("[sh_execCMDLine] could not execute command line\n");
                 return -1;
             } else
             {
@@ -173,7 +176,6 @@ int execCmdLine(int argc, char **argv)
             }
 
             j = 0;
-            isFirst = 0;
         } else
         {
             cmdArr[j] = argv[i];
@@ -186,10 +188,10 @@ int execCmdLine(int argc, char **argv)
     cmdArr[j] = NULL;
     char *const *execArr = &cmdArr[0];
 
-    err = expressiveExecvp(execArr, piped, isFirst, last);
+    err = sh_execvp(execArr, piped, last);
     if (err == -1)
     {
-        perror("[execCmdLine] expressiveExecvp()");
+        perror("[sh_execCMDLine] sh_execvp()");
         return -1;
     } else
     {
@@ -199,14 +201,14 @@ int execCmdLine(int argc, char **argv)
     err = dup2(in, 0);
     if (err == -1)
     {
-        perror("[execCmdLine] unable to duplicate file descriptor");
+        perror("[sh_execCMDLine] unable to duplicate file descriptor");
         exit(1);
     }
 
     err = dup2(out, 1);
     if (err == -1)
     {
-        perror("[execCmdLine] unable to duplicate file descriptor");
+        perror("[sh_execCMDLine] unable to duplicate file descriptor");
         exit(1);
     }
 
@@ -248,14 +250,14 @@ int shell()
     in = dup(0);
     if (in == -1)
     {
-        perror("unable to save stdin descriptor");
+        perror("[shell] unable to save stdin descriptor");
         exit(1);
     }
 
     out = dup(1);
     if (out == -1)
     {
-        perror("unable to save stdout descriptor");
+        perror("[shell] unable to save stdout descriptor");
         exit(1);
     }
 
@@ -280,7 +282,7 @@ int shell()
 
         printf("> \n");
 
-        readChr = readLine(0, args, &argc);
+        readChr = sh_readLine(0, args, &argc);
         switch (readChr)
         {
             case 0:
@@ -289,7 +291,7 @@ int shell()
             }
             case -1:
             {
-                lerror("unable to read line\n");
+                lerror("[shell] unable to read line\n");
                 return -1;
             }
             case -2:
@@ -299,7 +301,7 @@ int shell()
             }
             default:
             {
-                lerror("unexpected error code\n");
+                lerror("[shell] unexpected error code\n");
                 exit(1);
             }
         };
@@ -323,10 +325,10 @@ int shell()
             } else
             {
                 // run command with arguments:
-                err = execCmdLine(argc, argv);
+                err = sh_execCMDLine(argc, argv);
                 if (err == -1)
                 {
-                    lerror("unable to execute command line\n");
+                    lerror("[shell] unable to execute command line\n");
                     return -1;
                 }
             }
@@ -341,7 +343,8 @@ int shell()
     return 0;
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char **argv)
+{
     int err = shell();
     if (err == -1)
         return 1;
