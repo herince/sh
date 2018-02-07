@@ -50,7 +50,7 @@ int sh_execvp(char *const *execArr,
         if (piped && !isLast)
         {
             // command somewhere in the middle of the pipeline
-            err = dup2(pipefd[OUT], OUT);
+            err = dup2(pipefd[OUT], STDOUT_FILENO);
             if (err == -1)
             {
                 perror("[sh_execvp] dup2()");
@@ -128,7 +128,7 @@ int sh_execvp(char *const *execArr,
         //parent
         if (piped && !isLast)
         {
-            err = dup2(pipefd[IN], IN);
+            err = dup2(pipefd[IN], STDIN_FILENO);
             if (err == -1)
             {
                 perror("[sh_execvp] dup2()");
@@ -315,14 +315,14 @@ int sh_execCMDLine(int argc, char **argv)
         children++;
     }
 
-    err = dup2(in, IN);
+    err = dup2(in, STDIN_FILENO);
     if (err == -1)
     {
         perror("[sh_execCMDLine] dup2()");
         exit(1);
     }
 
-    err = dup2(out, OUT);
+    err = dup2(out, STDOUT_FILENO);
     if (err == -1)
     {
         perror("[sh_execCMDLine] dup2()");
