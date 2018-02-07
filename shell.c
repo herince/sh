@@ -2,9 +2,11 @@
 #include <unistd.h>
 #include <string.h>
 #include <wait.h>
-//#include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 #include <stdio.h>
+#include <fcntl.h>
 
 //const char *COMMAND_PROMPT = "> ";
 
@@ -25,7 +27,14 @@ void lerror(const char *msg)
 }
 
 // returns 0 on success and -1 on error
-int sh_execvp(char *const *execArr, int piped, int isLast)
+int sh_execvp(char *const *execArr,
+              int piped,
+              int redirectedInput,
+              const char *inFilename,
+              int redirectedOutput,
+              const char *outFilename,
+              int appendOut,
+              int isLast)
 {
     int err = 0;
 
@@ -44,7 +53,7 @@ int sh_execvp(char *const *execArr, int piped, int isLast)
             err = dup2(pipefd[OUT], OUT);
             if (err == -1)
             {
-                perror("[sh_execvp] unable to duplicate file descriptor");
+                perror("[sh_execvp] dup2()");
                 exit(1);
             }
         }
@@ -52,6 +61,60 @@ int sh_execvp(char *const *execArr, int piped, int isLast)
         {
             close(pipefd[IN]);
             close(pipefd[OUT]);
+        }
+
+        // redirect output if said to by > or >>
+        if (redirectedOutput)
+        {
+            int outfd;
+
+            if (appendOut)
+            {
+                outfd = open(outFilename, O_WRONLY | O_CREAT | O_APPEND);
+            } else
+            {
+                outfd = open(outFilename, O_WRONLY | O_CREAT | O_TRUNC);
+            }
+            if (outfd == -1)
+            {
+                perror("[sh_execvp] open()");
+                exit(1);
+            }
+
+            err = chmod(outFilename, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
+            if (err == -1)
+            {
+                perror("[sh_execvp] chmod()");
+                exit(1);
+            }
+
+            err = dup2(outfd, STDOUT_FILENO);
+            if (err == -1)
+            {
+                perror("[sh_execvp] dup2()");
+                exit(1);
+            }
+            close(outfd);
+        }
+        // redirect input if said to by <
+        if (redirectedInput)
+        {
+            int infd;
+
+            infd = open(inFilename, O_RDONLY);
+            if (infd == -1)
+            {
+                perror("[sh_execvp] open()");
+                exit(1);
+            }
+
+            err = dup2(infd, STDIN_FILENO);
+            if (err == -1)
+            {
+                perror("[sh_execvp] dup2()");
+                exit(1);
+            }
+            close(infd);
         }
 
         err = execvp(execArr[0], execArr);
@@ -68,7 +131,7 @@ int sh_execvp(char *const *execArr, int piped, int isLast)
             err = dup2(pipefd[IN], IN);
             if (err == -1)
             {
-                perror("[sh_execvp] unable to duplicate file descriptor");
+                perror("[sh_execvp] dup2()");
                 exit(1);
             }
         }
@@ -140,12 +203,64 @@ int sh_execCMDLine(int argc, char **argv)
     int j = 0;
 
     int piped = 0;
+
+    int redirectedIN = 0;
+    char *inFilename = "";
+
+    int redirectedOUT = 0;
+    char *outFilename = "";
+    int appendOut = 1;
+
     int last = 0;
 
     int children = 0;
 
     for (int i = 0; i < argc; i++)
     {
+        if (strcmp(argv[i], ">") == 0)
+        {
+            redirectedOUT = 1;
+            appendOut = 0;
+
+            if (i == argc - 1)
+            {
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
+            }
+
+            outFilename = argv[++i];
+
+            continue;
+        }
+
+        if (strcmp(argv[i], ">>") == 0)
+        {
+            redirectedOUT = 1;
+            appendOut = 1;
+
+            if (i == argc - 1)
+            {
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
+            }
+
+            outFilename = argv[++i];
+
+            continue;
+        }
+
+        if (strcmp(argv[i], "<") == 0)
+        {
+            redirectedIN = 1;
+
+            if (i == argc - 1)
+            {
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
+            }
+
+            inFilename = argv[++i];
+
+            continue;
+        }
+
         if (strcmp(argv[i], "|") == 0)
         {
             if (j < 1)
@@ -165,7 +280,7 @@ int sh_execCMDLine(int argc, char **argv)
             }
             piped = 1;
 
-            err = sh_execvp(execArr, piped, last);
+            err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
             if (err == -1)
             {
                 lerror("[sh_execCMDLine] could not execute command line\n");
@@ -176,6 +291,8 @@ int sh_execCMDLine(int argc, char **argv)
             }
 
             j = 0;
+            redirectedIN = 0;
+            redirectedOUT = 0;
         } else
         {
             cmdArr[j] = argv[i];
@@ -188,7 +305,7 @@ int sh_execCMDLine(int argc, char **argv)
     cmdArr[j] = NULL;
     char *const *execArr = &cmdArr[0];
 
-    err = sh_execvp(execArr, piped, last);
+    err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
     if (err == -1)
     {
         perror("[sh_execCMDLine] sh_execvp()");
@@ -198,17 +315,17 @@ int sh_execCMDLine(int argc, char **argv)
         children++;
     }
 
-    err = dup2(in, 0);
+    err = dup2(in, IN);
     if (err == -1)
     {
-        perror("[sh_execCMDLine] unable to duplicate file descriptor");
+        perror("[sh_execCMDLine] dup2()");
         exit(1);
     }
 
-    err = dup2(out, 1);
+    err = dup2(out, OUT);
     if (err == -1)
     {
-        perror("[sh_execCMDLine] unable to duplicate file descriptor");
+        perror("[sh_execCMDLine] dup2()");
         exit(1);
     }
 
@@ -224,6 +341,7 @@ int sh_execCMDLine(int argc, char **argv)
                 exit(1);
             }
 
+            // todo - remove:
             if (WIFEXITED(returnStatus))
             {
                 printf("exited, status = %d\n", returnStatus);
@@ -247,14 +365,14 @@ int sh_execCMDLine(int argc, char **argv)
 int shell()
 {
     // save stdin and stdout file descriptors so that you can fix redirected (from pipes) i/o
-    in = dup(0);
+    in = dup(STDIN_FILENO);
     if (in == -1)
     {
         perror("[shell] unable to save stdin descriptor");
         exit(1);
     }
 
-    out = dup(1);
+    out = dup(STDOUT_FILENO);
     if (out == -1)
     {
         perror("[shell] unable to save stdout descriptor");
