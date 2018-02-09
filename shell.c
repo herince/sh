@@ -27,7 +27,7 @@ void lerror(const char *msg)
 }
 
 // returns 0 on success and -1 on error
-int sh_execvp(char **execArr,
+int sh_execvp(char *const *execArr,
               int piped,
               int redirectedInput,
               const char *inFilename,
@@ -311,7 +311,7 @@ int sh_execCMDLine(int argc, char **argv)
             }
             piped = 1;
 
-            err = sh_execvp(cmdArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
+            err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
             if (err == -1)
             {
                 lerror("[sh_execCMDLine] could not execute command line\n");
@@ -336,7 +336,7 @@ int sh_execCMDLine(int argc, char **argv)
     cmdArr[j] = NULL;
     char *const *execArr = &cmdArr[0];
 
-    err = sh_execvp(cmdArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
+    err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
     if (err == -1)
     {
         perror("[sh_execCMDLine] sh_execvp()");
@@ -392,8 +392,7 @@ int sh_execCMDLine(int argc, char **argv)
     return 0;
 }
 
-// returns 0 on success and -1 on error
-int shell()
+void shell()
 {
     // save stdin and stdout file descriptors so that you can fix redirected (from pipes) i/o
     in = dup(STDIN_FILENO);
@@ -502,8 +501,6 @@ int shell()
         perror("[shell] close()");
         exit(1);
     }
-
-    return 0;
 }
 
 int main(int argc, char **argv)
