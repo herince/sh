@@ -56,9 +56,7 @@ int sh_execvp(char *const *execArr,
                 perror("[sh_execvp(child)] dup2()");
                 exit(1);
             }
-        }
-        if (piped)
-        {
+
             err = close(pipefd[IN]);
             if (err == -1)
             {
@@ -147,12 +145,7 @@ int sh_execvp(char *const *execArr,
                 perror("[sh_execvp(parent)] dup2()");
                 exit(1);
             }
-        }
-
-        if (piped)
-        {
-            printf("in=%d out=%d\n", pipefd[IN], pipefd[OUT]);
-
+            
             err = close(pipefd[IN]);
             if (err == -1)
             {
