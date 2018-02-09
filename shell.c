@@ -203,11 +203,13 @@ ssize_t sh_readLine(int fd, char args[ARG_MAX], unsigned int *argc)
         args_i++;
     } while (currChr != '\n' && args_i < ARG_MAX);
 
-    if (args_i == ARG_MAX)
+    if (strlen(args) == ARG_MAX)
     {
         lerror("[sh_readLine] command line limit exceeded\n");
         exit(1);
     }
+
+    //printf("%d\n", strlen(args));
 
     return 0;
 }
@@ -244,8 +246,8 @@ int sh_execCMDLine(int argc, char **argv)
             }
 
             cmdArr[argIndex] = NULL;
-            commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char*));
-            memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char*));
+            commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char *));
+            memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char *));
 
             cmdIndex++;
             argIndex = 0;
@@ -256,8 +258,8 @@ int sh_execCMDLine(int argc, char **argv)
         }
     }
     cmdArr[argIndex] = NULL;
-    commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char*));
-    memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char*));
+    commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char *));
+    memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char *));
 
     /* for (int i = 0; i < cmdCount; i++)
     {
@@ -272,9 +274,11 @@ int sh_execCMDLine(int argc, char **argv)
 
     // execute commands
     int piped;
-    if (cmdCount > 1) {
+    if (cmdCount > 1)
+    {
         piped = 1;
-    } else {
+    } else
+    {
         piped = 0;
     }
 
@@ -291,8 +295,10 @@ int sh_execCMDLine(int argc, char **argv)
     int children = 0;
 
     // loop through all of the commands in the command line and pipe them (wherever needed)
-    for(int i = 0; i < cmdCount; i++) {
-        for (int j = 0; commands[i][j] != NULL; j++) {
+    for (int i = 0; i < cmdCount; i++)
+    {
+        for (int j = 0; commands[i][j] != NULL; j++)
+        {
             // check for output redirection
             if (strcmp(commands[i][j], ">") == 0)
             {
@@ -347,11 +353,13 @@ int sh_execCMDLine(int argc, char **argv)
             }
         }
 
-        if (i == cmdCount - 1) {
+        if (i == cmdCount - 1)
+        {
             last = 1;
         }
 
-        if (piped && !last) {
+        if (piped && !last)
+        {
             pipe(pipefd);
         }
 
