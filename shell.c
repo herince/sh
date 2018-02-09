@@ -145,7 +145,7 @@ int sh_execvp(char *const *execArr,
                 perror("[sh_execvp(parent)] dup2()");
                 exit(1);
             }
-            
+
             err = close(pipefd[IN]);
             if (err == -1)
             {
@@ -215,12 +215,68 @@ ssize_t sh_readLine(int fd, char args[ARG_MAX], unsigned int *argc)
 // returns 0 on success and -1 on error
 int sh_execCMDLine(int argc, char **argv)
 {
-    int err;
+    // parse commands from command line
+    int cmdCount = 1;
+
+    for (int i = 0; i < argc; i++)
+    {
+        if (strcmp(argv[i], "|") == 0)
+        {
+            cmdCount++;
+        }
+    }
 
     char *cmdArr[argc + 1];
-    int j = 0;
 
-    int piped = 0;
+    char ***commands = malloc((cmdCount) * sizeof(char **));
+
+    int cmdIndex = 0;
+    int argIndex = 0;
+
+    for (int i = 0; i < argc; i++)
+    {
+        if (strcmp(argv[i], "|") == 0)
+        {
+            if (argIndex < 1)
+            {
+                lerror("[sh_execCMDLine] unexpected token '|'\n");
+                return -1;
+            }
+
+            cmdArr[argIndex] = NULL;
+            commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char*));
+            memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char*));
+
+            cmdIndex++;
+            argIndex = 0;
+        } else
+        {
+            cmdArr[argIndex] = argv[i];
+            argIndex++;
+        }
+    }
+    cmdArr[argIndex] = NULL;
+    commands[cmdIndex] = malloc((argIndex + 1) * sizeof(char*));
+    memcpy(commands[cmdIndex], cmdArr, (argIndex + 1) * sizeof(char*));
+
+    /* for (int i = 0; i < cmdCount; i++)
+    {
+        printf("{");
+        for (int j = 0; commands[i][j] != NULL; j++)
+        {
+            printf("%s, ", commands[i][j]);
+        }
+        printf("}\n");
+    } */
+
+
+    // execute commands
+    int piped;
+    if (cmdCount > 1) {
+        piped = 1;
+    } else {
+        piped = 0;
+    }
 
     int redirectedIN = 0;
     char *inFilename = "";
@@ -231,112 +287,86 @@ int sh_execCMDLine(int argc, char **argv)
 
     int last = 0;
 
+    int err;
     int children = 0;
 
-    for (int i = 0; i < argc; i++)
-    {
-        if (strcmp(argv[i], ">") == 0)
-        {
-            if (i == argc - 1)
+    // loop through all of the commands in the command line and pipe them (wherever needed)
+    for(int i = 0; i < cmdCount; i++) {
+        for (int j = 0; commands[i][j] != NULL; j++) {
+            // check for output redirection
+            if (strcmp(commands[i][j], ">") == 0)
             {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
-                return -1;
-            } else
-            {
-                redirectedOUT = 1;
-                appendOut = 0;
+                if (commands[i][j + 1] == NULL)
+                {
+                    lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                    return -1;
+                } else
+                {
+                    redirectedOUT = 1;
+                    appendOut = 0;
 
-                outFilename = argv[++i];
+                    outFilename = commands[i][++j];
+                }
+
+                continue;
             }
 
-            continue;
+            // check for output redirection
+            if (strcmp(commands[i][j], ">>") == 0)
+            {
+                if (commands[i][j + 1] == NULL)
+                {
+                    lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                    return -1;
+                } else
+                {
+                    redirectedOUT = 1;
+                    appendOut = 1;
+
+                    outFilename = commands[i][++j];
+                }
+
+                continue;
+            }
+
+            // check for input redirection
+            if (strcmp(commands[i][j], "<") == 0)
+            {
+                if (commands[i][j + 1] == NULL)
+                {
+                    lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                    return -1;
+                } else
+                {
+                    redirectedIN = 1;
+
+                    inFilename = commands[i][++j];
+                }
+
+                continue;
+            }
         }
 
-        if (strcmp(argv[i], ">>") == 0)
-        {
-            if (i == argc - 1)
-            {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
-                return -1;
-            } else
-            {
-                redirectedOUT = 1;
-                appendOut = 1;
-
-                outFilename = argv[++i];
-            }
-
-            continue;
+        if (i == cmdCount - 1) {
+            last = 1;
         }
 
-        if (strcmp(argv[i], "<") == 0)
-        {
-            if (i == argc - 1)
-            {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
-                return -1;
-            } else
-            {
-                redirectedIN = 1;
-
-                inFilename = argv[++i];
-            }
-
-            continue;
+        if (piped && !last) {
+            pipe(pipefd);
         }
 
-        if (strcmp(argv[i], "|") == 0)
+        err = sh_execvp(commands[i], piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
+        if (err == -1)
         {
-            if (j < 1)
-            {
-                lerror("[sh_execCMDLine] unexpected token '|'\n");
-                return -1;
-            }
-
-            cmdArr[j] = NULL;
-            char *const *execArr = &cmdArr[0];
-
-            err = pipe(pipefd);
-            if (err == -1)
-            {
-                perror("[sh_execCMDLine] pipe()");
-                exit(1);
-            }
-            piped = 1;
-
-            err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
-            if (err == -1)
-            {
-                lerror("[sh_execCMDLine] could not execute command line\n");
-                return -1;
-            } else
-            {
-                children++;
-            }
-
-            j = 0;
-            redirectedIN = 0;
-            redirectedOUT = 0;
+            lerror("[sh_execCMDLine] could not execute command line\n");
+            return -1;
         } else
         {
-            cmdArr[j] = argv[i];
-            j++;
+            children++;
         }
-    }
 
-    last = 1;
-
-    cmdArr[j] = NULL;
-    char *const *execArr = &cmdArr[0];
-
-    err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
-    if (err == -1)
-    {
-        perror("[sh_execCMDLine] sh_execvp()");
-        return -1;
-    } else
-    {
-        children++;
+        redirectedIN = 0;
+        redirectedOUT = 0;
     }
 
     err = dup2(in, STDIN_FILENO);
