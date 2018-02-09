@@ -441,7 +441,7 @@ int shell()
             case -1:
             {
                 lerror("[shell] unable to read line\n");
-                return -1;
+                continue;
             }
             case -2:
             {
@@ -482,7 +482,7 @@ int shell()
                 if (err == -1)
                 {
                     lerror("[shell] unable to execute command line\n");
-                    return -1;
+                    continue;
                 }
             }
 
@@ -508,7 +508,5 @@ int shell()
 
 int main(int argc, char **argv)
 {
-    int err = shell();
-    if (err == -1)
-        return 1;
+    shell();
 }
