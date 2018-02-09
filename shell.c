@@ -27,7 +27,7 @@ void lerror(const char *msg)
 }
 
 // returns 0 on success and -1 on error
-int sh_execvp(char *const *execArr,
+int sh_execvp(char **execArr,
               int piped,
               int redirectedInput,
               const char *inFilename,
@@ -53,14 +53,24 @@ int sh_execvp(char *const *execArr,
             err = dup2(pipefd[OUT], STDOUT_FILENO);
             if (err == -1)
             {
-                perror("[sh_execvp] dup2()");
+                perror("[sh_execvp(child)] dup2()");
                 exit(1);
             }
         }
         if (piped)
         {
-            close(pipefd[IN]);
-            close(pipefd[OUT]);
+            err = close(pipefd[IN]);
+            if (err == -1)
+            {
+                perror("[sh_execvp(child)] close(in)");
+                exit(1);
+            }
+            err = close(pipefd[OUT]);
+            if (err == -1)
+            {
+                perror("[sh_execvp(child)] close(out)");
+                exit(1);
+            }
         }
 
         // redirect output if said to by > or >>
@@ -77,21 +87,21 @@ int sh_execvp(char *const *execArr,
             }
             if (outfd == -1)
             {
-                perror("[sh_execvp] open()");
+                perror("[sh_execvp(child)] open()");
                 exit(1);
             }
 
             err = chmod(outFilename, S_IWUSR | S_IRUSR | S_IWGRP | S_IRGRP | S_IROTH);
             if (err == -1)
             {
-                perror("[sh_execvp] chmod()");
+                perror("[sh_execvp(child)] chmod()");
                 exit(1);
             }
 
             err = dup2(outfd, STDOUT_FILENO);
             if (err == -1)
             {
-                perror("[sh_execvp] dup2()");
+                perror("[sh_execvp(child)] dup2()");
                 exit(1);
             }
             close(outfd);
@@ -104,25 +114,28 @@ int sh_execvp(char *const *execArr,
             infd = open(inFilename, O_RDONLY);
             if (infd == -1)
             {
-                perror("[sh_execvp] open()");
+                perror("[sh_execvp(child)] open()");
                 exit(1);
             }
 
             err = dup2(infd, STDIN_FILENO);
             if (err == -1)
             {
-                perror("[sh_execvp] dup2()");
+                perror("[sh_execvp(child)] dup2()");
                 exit(1);
             }
-            close(infd);
+            err = close(infd);
+            if (err == -1)
+            {
+                perror("[sh_execvp(child)] close()");
+                exit(1);
+            }
         }
 
-        err = execvp(execArr[0], execArr);
-        if (err == -1)
-        {
-            perror("[sh_execvp] execvp()");
-            exit(1);
-        }
+        execvp(execArr[0], execArr);
+
+        perror("[sh_execvp] execvp()");
+        exit(1);
     } else
     {
         //parent
@@ -131,15 +144,27 @@ int sh_execvp(char *const *execArr,
             err = dup2(pipefd[IN], STDIN_FILENO);
             if (err == -1)
             {
-                perror("[sh_execvp] dup2()");
+                perror("[sh_execvp(parent)] dup2()");
                 exit(1);
             }
         }
 
         if (piped)
         {
-            close(pipefd[IN]);
-            close(pipefd[OUT]);
+            printf("in=%d out=%d\n", pipefd[IN], pipefd[OUT]);
+
+            err = close(pipefd[IN]);
+            if (err == -1)
+            {
+                perror("[sh_execvp(parent)] close(in)");
+                exit(1);
+            }
+            err = close(pipefd[OUT]);
+            if (err == -1)
+            {
+                perror("[sh_execvp(parent)] close(out)");
+                exit(1);
+            }
         }
     }
 
@@ -168,7 +193,10 @@ ssize_t sh_readLine(int fd, char args[ARG_MAX], unsigned int *argc)
             return -2;
         }
 
-        if (currChr != '\n')
+        if (currChr == '\n')
+        {
+            args[args_i] = 0;
+        } else
         {
             args[args_i] = currChr;
 
@@ -177,18 +205,15 @@ ssize_t sh_readLine(int fd, char args[ARG_MAX], unsigned int *argc)
             {
                 (*argc)++;
             }
-        } else
-        {
-            args[args_i] = 0;
         }
 
         args_i++;
-    } while (currChr != '\n' && args_i <= ARG_MAX);
+    } while (currChr != '\n' && args_i < ARG_MAX);
 
     if (args_i == ARG_MAX)
     {
         lerror("[sh_readLine] command line limit exceeded\n");
-        return -1;
+        exit(1);
     }
 
     return 0;
@@ -219,44 +244,50 @@ int sh_execCMDLine(int argc, char **argv)
     {
         if (strcmp(argv[i], ">") == 0)
         {
-            redirectedOUT = 1;
-            appendOut = 0;
-
             if (i == argc - 1)
             {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
-            }
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                return -1;
+            } else
+            {
+                redirectedOUT = 1;
+                appendOut = 0;
 
-            outFilename = argv[++i];
+                outFilename = argv[++i];
+            }
 
             continue;
         }
 
         if (strcmp(argv[i], ">>") == 0)
         {
-            redirectedOUT = 1;
-            appendOut = 1;
-
             if (i == argc - 1)
             {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
-            }
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                return -1;
+            } else
+            {
+                redirectedOUT = 1;
+                appendOut = 1;
 
-            outFilename = argv[++i];
+                outFilename = argv[++i];
+            }
 
             continue;
         }
 
         if (strcmp(argv[i], "<") == 0)
         {
-            redirectedIN = 1;
-
             if (i == argc - 1)
             {
-                lerror("[sh_execCMDLine] syntax error near unexpected token `newline'");
-            }
+                lerror("[sh_execCMDLine] syntax error near unexpected token `newline`");
+                return -1;
+            } else
+            {
+                redirectedIN = 1;
 
-            inFilename = argv[++i];
+                inFilename = argv[++i];
+            }
 
             continue;
         }
@@ -280,7 +311,7 @@ int sh_execCMDLine(int argc, char **argv)
             }
             piped = 1;
 
-            err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
+            err = sh_execvp(cmdArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
             if (err == -1)
             {
                 lerror("[sh_execCMDLine] could not execute command line\n");
@@ -305,7 +336,7 @@ int sh_execCMDLine(int argc, char **argv)
     cmdArr[j] = NULL;
     char *const *execArr = &cmdArr[0];
 
-    err = sh_execvp(execArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
+    err = sh_execvp(cmdArr, piped, redirectedIN, inFilename, redirectedOUT, outFilename, appendOut, last);
     if (err == -1)
     {
         perror("[sh_execCMDLine] sh_execvp()");
@@ -344,7 +375,7 @@ int sh_execCMDLine(int argc, char **argv)
             // todo - remove:
             if (WIFEXITED(returnStatus))
             {
-                printf("exited, status = %d\n", returnStatus);
+                //printf("exited, status = %d\n", returnStatus);
             } else if (WIFSIGNALED(returnStatus))
             {
                 printf("killed by signal %d\n", returnStatus);
@@ -430,11 +461,15 @@ int shell()
             argv = malloc(argc * sizeof(char *));
 
             // extract arguments
-            argv[argv_i] = strtok(args, " ");
+            char *token;
+            token = strtok(args, " ");
 
-            for (argv_i = 1; argv_i < argc; argv_i++)
+            while (token != NULL)
             {
-                argv[argv_i] = strtok(NULL, " ");
+                argv[argv_i] = *(&token);
+                token = strtok(NULL, " ");
+
+                argv_i++;
             }
 
             if (argc == 1 && strcmp(argv[0], "exit") == 0)
@@ -455,8 +490,18 @@ int shell()
         }
     } while (exitShell != 1);
 
-    close(in);
-    close(out);
+    err = close(in);
+    if (err == -1)
+    {
+        perror("[shell] close()");
+        exit(1);
+    }
+    err = close(out);
+    if (err == -1)
+    {
+        perror("[shell] close()");
+        exit(1);
+    }
 
     return 0;
 }
