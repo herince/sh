@@ -10,6 +10,6 @@ to leave the shell, use
 > exit
 ```
 
-###supports
+#### supports
 - pipes
 - i/o redirection
