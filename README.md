@@ -9,3 +9,7 @@ to leave the shell, use
 ```
 > exit
 ```
+
+####supports
+- pipes
+- i/o redirection
